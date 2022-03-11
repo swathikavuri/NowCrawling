@@ -42,6 +42,9 @@ import urllib.parse
 from optparse import OptionParser, OptionGroup
 import re
 from timeit import default_timer as timer
+import requests
+import urllib
+from bs4 import BeautifulSoup
 
 # Try to import chardet. If it fails, bookkeep so we deal with it later
 try:
@@ -70,7 +73,7 @@ RECURSION_SEARCH_REGEX = """(href="[^<>]*?")|(href=.?'[^<>]*?')"""
 SMART_FILE_SEARCH = " intitle:index of "
 
 # Results we ask google to give us. Might give us more. If they give us less, then there are no more results.
-GOOGLE_NUM_RESULTS = 100
+GOOGLE_NUM_RESULTS = 1
 
 # The user agent we report to pages, and to google
 GOOGLE_USER_AGENT = 'Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2228.0 Safari/537.36'
@@ -401,22 +404,23 @@ def read_data_from_url(url, timeout, headers, verbose, indentation_level=0, max_
                 return True,''
         else:
             return False,'{} is not an acceptable content-type'.format(content_type)
-
+    
     try:
         request = urllib.request.Request(url, None, headers)
-        request.add_header('Accept-encoding', 'gzip') # Don't want to miss out on all those gzipp-ed pages!
+        request.add_header('accept-encoding', 'gzip') # Don't want to miss out on all those gzipp-ed pages!
         response = urllib.request.urlopen(request,timeout=timeout)
         valid,error=isValid(response.info())
         if valid:
-
+            
             # If the content is gzipped, we must decompress it
             if response.info().get('Content-Encoding') == 'gzip':
                 buf = BytesIO(response.read())
                 f = gzip.GzipFile(fileobj=buf)
                 r = f.read()
+                
             else:
                 r = response.read()
-
+                
             try:
                 # For different python versions and library versions, the way to find the charset is different, so we
                 # generalize.
@@ -429,9 +433,11 @@ def read_data_from_url(url, timeout, headers, verbose, indentation_level=0, max_
 
                 # Effectively decode the data
                 r = r.decode(get_most_likely_encoding(r, hint_encoding, verbose))
+                
             except Exception as e:
                 doVerbose(lambda: Logger().log('URL {:s} has a weird encoding ({:s}). Using old method.'.format(url, str(e)), False, 'YELLOW',indentation_level=indentation_level), verbose)
                 r = str(r) #will have b''
+                
             return r
 
         else:
@@ -751,11 +757,20 @@ def fetch_urls(url_list, keywords, start, smart, url_list_supplied, verbose):
         for url in url_list:
             doVerbose(lambda: Logger().log('\t{:s}'.format(url)), verbose)
     else:
-        doVerbose(lambda: Logger().log('Fetching {:d} results from Google.'.format(GOOGLE_NUM_RESULTS)), verbose)
+        """ doVerbose(lambda: Logger().log('Fetching {:d} results from Google.'.format(GOOGLE_NUM_RESULTS)), verbose)
         url_list = crawlGoogle(GOOGLE_NUM_RESULTS, start, keywords, smart)
-        doVerbose(lambda: Logger().log('Fetched {:d} results.'.format(len(url_list))), verbose)
+        doVerbose(lambda: Logger().log('Fetched {:d} results.'.format(len(url_list))), verbose) """
 
-    return url_list
+        """ query = 'telugu fonts' """
+
+
+        r = requests.get('https://www.google.com/search?q=telugu+fonts')
+        soup = BeautifulSoup(r.text, "html.parser")
+        links = []
+        for item in soup.find_all('a'):
+            """ item['link'] = links[idx].lstrip("/url?q=") """
+            links.append(item.get('href').lstrip("/url?q=").split('&')[0])
+    return links
 
 def crawl(getfiles, keywords, extensions, smart, tags, regex, ask, limit, maxfiles, directory, contentFile, verbose, timeout, recursion_depth, blacklist_file, whitelist_file, url_list, permanent_search):
     downloaded = 0
@@ -774,7 +789,8 @@ def crawl(getfiles, keywords, extensions, smart, tags, regex, ask, limit, maxfil
         while True:
             # Fetch results from google or use user-supplied url list
             url_list = fetch_urls(url_list, keywords, start, smart, url_list_supplied, verbose)
-
+            print(url_list, "test")
+            print(len(url_list), "length")
             # Find matches in results. if getfiles, then these are urls
             for url_number,searchurl in enumerate(url_list):
                 matches = recursiveCrawlURLForMatches(searchurl, getfiles, compiled_regex, tags, verbose, timeout, blacklist, whitelist, maxDepth=recursion_depth ,visitedUrls=ALL_VISITED_URLS, prepend='[{:d}/{:d}] '.format(url_number+1, len(url_list)))
@@ -795,15 +811,10 @@ def crawl(getfiles, keywords, extensions, smart, tags, regex, ask, limit, maxfil
             # a) We were given a URL list and so, we're done
             # b) We were searching Google, but they gave us less results than we asked for, thus we've reached the end
             # Also restart if in permanent search mode
-            if url_list_supplied or len(url_list) < GOOGLE_NUM_RESULTS:
-                if permanent_search:
-                    Logger().log('No more results. Restarting search (permanent search mode).', True, 'YELLOW')
-                    start = 0
-                else:
-                    Logger().log('No more results. Exiting.', True, 'GREEN')
-                    break
-            else:
-                start += len(url_list)
+            
+            Logger().log('No more results. Exiting.', True, 'GREEN')
+            break
+            
 
 
     except KeyboardInterrupt:
